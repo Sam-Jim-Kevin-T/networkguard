@@ -1,0 +1,107 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#08111f">
+  <title>NetworkGuard — Linux monitoring</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='app.css') }}">
+  <script src="{{ url_for('static', filename='app.js') }}" defer></script>
+</head>
+<body>
+  <main id="auth-view" class="auth-view" hidden>
+    <section class="auth-card">
+      <a class="brand" href="/" aria-label="NetworkGuard home"><span class="brand-mark">N</span><span>NETWORK<span class="brand-accent">GUARD</span></span></a>
+      <p class="eyebrow">LINUX SECURITY MONITORING</p>
+      <h1 id="auth-heading">Your infrastructure, in view.</h1>
+      <p class="muted">Sign in to monitor your Linux servers and review security alerts.</p>
+      <div class="auth-tabs" role="tablist" aria-label="Account options">
+        <button id="login-tab" class="auth-tab selected" type="button" role="tab" aria-selected="true">Sign in</button>
+        <button id="register-tab" class="auth-tab" type="button" role="tab" aria-selected="false">Create account</button>
+      </div>
+      <form id="auth-form">
+        <label for="auth-email">Email address</label>
+        <input id="auth-email" name="email" type="email" autocomplete="email" required maxlength="254">
+        <label for="auth-password">Password</label>
+        <input id="auth-password" name="password" type="password" autocomplete="current-password" required minlength="12" maxlength="128">
+        <p id="password-hint" class="field-hint" hidden>Use at least 12 characters.</p>
+        <button id="auth-submit" class="button primary full" type="submit">Sign in</button>
+      </form>
+      <p id="auth-error" class="notice error" role="alert" hidden></p>
+    </section>
+  </main>
+
+  <div id="app-view" class="app-shell" hidden>
+    <aside class="sidebar">
+      <a class="brand" href="#dashboard" aria-label="NetworkGuard dashboard"><span class="brand-mark">N</span><span>NETWORK<span class="brand-accent">GUARD</span></span></a>
+      <p class="nav-label">WORKSPACE</p>
+      <nav aria-label="Main navigation">
+        <button class="nav-link active" type="button" data-page="dashboard"><span aria-hidden="true">◫</span> Overview</button>
+        <button class="nav-link" type="button" data-page="servers"><span aria-hidden="true">▤</span> My servers <span id="server-nav-count" class="nav-count">0</span></button>
+        <button class="nav-link" type="button" data-page="alerts"><span aria-hidden="true">⌁</span> Security alerts <span id="alert-nav-count" class="nav-count alert-count">0</span></button>
+      </nav>
+      <div class="sidebar-bottom">
+        <div class="connection-state"><span class="pulse-dot"></span><span>API connected</span></div>
+        <div class="account-row"><span id="account-avatar" class="avatar">U</span><span id="account-email" class="account-email">Account</span><button id="logout-button" class="icon-button" type="button" title="Sign out" aria-label="Sign out">↗</button></div>
+      </div>
+    </aside>
+
+    <section class="main-column">
+      <header class="topbar">
+        <div><p class="eyebrow">NETWORK OPERATIONS</p><h1 id="page-title">Overview</h1></div>
+        <div class="topbar-actions"><span id="last-updated" class="muted small"></span><button id="refresh-button" class="button secondary" type="button"><span aria-hidden="true">↻</span> Refresh</button></div>
+      </header>
+      <div id="global-notice" class="notice" role="status" hidden></div>
+      <div id="loading-state" class="loading-state">Loading your workspace…</div>
+
+      <section id="dashboard-page" class="page-content" hidden>
+        <div class="welcome-row"><div><h2>Network overview</h2><p class="muted">Live health and security status across your Linux infrastructure.</p></div><button class="button primary" type="button" data-open-add>＋ Add server</button></div>
+        <div class="stats-grid">
+          <article class="stat-card"><span class="stat-icon blue">▤</span><span class="stat-label">MONITORED SERVERS</span><strong id="stat-servers">0</strong><span id="stat-online" class="stat-foot">0 online</span></article>
+          <article class="stat-card"><span class="stat-icon cyan">⇄</span><span class="stat-label">ACTIVE CONNECTIONS</span><strong id="stat-connections">0</strong><span id="stat-protocols" class="stat-foot">0 TCP · 0 UDP</span></article>
+          <article class="stat-card"><span class="stat-icon violet">⌁</span><span class="stat-label">ACTIVE ALERTS</span><strong id="stat-alerts">0</strong><span class="stat-foot">Across your servers</span></article>
+        </div>
+        <div class="content-grid">
+          <article class="panel traffic-panel"><div class="panel-heading"><div><h2>Network traffic</h2><p class="muted">Recent agent reports · bytes per interval</p></div><span class="live-badge"><span class="pulse-dot"></span> LIVE</span></div><div class="chart-wrap"><canvas id="traffic-chart" role="img" aria-label="Recent incoming and outgoing network traffic chart"></canvas><div id="chart-empty" class="chart-empty">Traffic will appear after your agent sends reports.</div></div><div class="chart-legend"><span><i class="legend-in"></i> Inbound</span><span><i class="legend-out"></i> Outbound</span></div></article>
+          <article class="panel"><div class="panel-heading"><div><h2>Security alerts</h2><p class="muted">Latest detections</p></div><button class="text-button" type="button" data-go-page="alerts">View all →</button></div><div id="recent-alerts" class="alert-list"></div></article>
+        </div>
+        <article class="panel table-panel"><div class="panel-heading"><div><h2>Your servers</h2><p class="muted">Current health of registered Linux hosts</p></div><button class="text-button" type="button" data-go-page="servers">All servers →</button></div><div id="dashboard-servers"></div></article>
+      </section>
+
+      <section id="servers-page" class="page-content" hidden>
+        <div class="welcome-row"><div><h2>My servers</h2><p class="muted">Manage monitored Linux machines in your account.</p></div><button class="button primary" type="button" data-open-add>＋ Add server</button></div>
+        <div id="server-grid" class="server-grid"></div>
+        <article id="server-detail" class="panel detail-panel" hidden></article>
+      </section>
+
+      <section id="alerts-page" class="page-content" hidden>
+        <div class="welcome-row"><div><h2>Security alerts</h2><p class="muted">Investigate detections reported by your agents.</p></div><label class="filter-label" for="alert-filter">Show <select id="alert-filter"><option value="active">Active</option><option value="resolved">Resolved</option><option value="all">All alerts</option></select></label></div>
+        <article class="panel table-panel"><div id="all-alerts" class="alert-list"></div></article>
+      </section>
+    </section>
+  </div>
+
+  <dialog id="add-server-dialog" class="dialog">
+    <form id="add-server-form" class="dialog-card">
+      <button class="dialog-close icon-button" type="button" data-close-dialog aria-label="Close">×</button>
+      <p class="eyebrow">AGENT ENROLLMENT</p><h2>Add a Linux server</h2>
+      <p class="muted">Register a host to generate its unique agent token.</p>
+      <label for="server-name">Server name</label><input id="server-name" name="name" maxlength="100" required placeholder="e.g. Ubuntu web server">
+      <label for="server-hostname">Hostname <span class="muted">(optional)</span></label><input id="server-hostname" name="hostname" maxlength="255" placeholder="e.g. web-01">
+      <p id="server-form-error" class="notice error" role="alert" hidden></p>
+      <button class="button primary full" type="submit">Register server</button>
+    </form>
+  </dialog>
+
+  <dialog id="token-dialog" class="dialog">
+    <div class="dialog-card token-card">
+      <button class="dialog-close icon-button" type="button" data-close-dialog aria-label="Close">×</button>
+      <p class="eyebrow">SAVE THIS TOKEN</p><h2>Server registered</h2>
+      <p class="notice warning">This token is shown only once. Copy it now and store it securely on the Linux server.</p>
+      <label for="new-agent-token">Agent token</label><div class="copy-row"><input id="new-agent-token" readonly><button id="copy-token" class="button secondary" type="button">Copy</button></div>
+      <p class="field-hint">Follow the agent installation steps in the project README.</p>
+      <button class="button primary full" type="button" data-close-dialog>Done</button>
+    </div>
+  </dialog>
+</body>
+</html>

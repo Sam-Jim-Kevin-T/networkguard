@@ -1,0 +1,15 @@
+services:
+  - type: web
+    name: networkguard
+    runtime: python
+    plan: free
+    buildCommand: pip install -r requirements.txt
+    startCommand: gunicorn --workers 1 --bind 0.0.0.0:$PORT --access-logfile - --error-logfile - run:app
+    healthCheckPath: /healthz
+    envVars:
+      - key: SECRET_KEY
+        generateValue: true
+      - key: COOKIE_SECURE
+        value: "true"
+      - key: DATABASE_URL
+        sync: false

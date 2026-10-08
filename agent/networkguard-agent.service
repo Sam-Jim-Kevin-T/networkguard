@@ -1,0 +1,19 @@
+[Unit]
+Description=NetworkGuard Linux Monitoring Agent
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=root
+EnvironmentFile=/etc/networkguard-agent.env
+ExecStart=/opt/networkguard-agent/.venv/bin/networkguard-agent
+Restart=on-failure
+RestartSec=10
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+
+[Install]
+WantedBy=multi-user.target
