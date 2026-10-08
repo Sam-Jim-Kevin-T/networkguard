@@ -25,7 +25,7 @@ python run.py
 
 The development server listens on `http://127.0.0.1:5000`; open that address to use the browser dashboard. Create an account, register a Linux server, then copy the one-time agent token into the agent's environment file. The dashboard refreshes automatically every 30 seconds. For an HTTPS deployment, set `COOKIE_SECURE=true` and run Flask behind a production WSGI server and reverse proxy. Do not expose Flask's development server to the public internet.
 
-The dashboard includes account sign-in/registration, server enrollment and removal, a one-time token display, CPU/memory and connection summaries, recent network traffic, server details, alert filtering, and alert resolution. Server risk is shown as high when a high-severity alert is active, medium for other active alerts, and low when no alerts are active.
+The dashboard includes account sign-in/registration, server enrollment and removal, a one-time token display, CPU/memory and connection summaries, recent network traffic, per-process connection rankings, connection review labels, recent detection logs, alert/event resolution, and per-server IP allow/block lists. A newly seen IP, uncommon remote port, high connection count, or unavailable process name is only a review hint; these observations are not proof of malicious activity. IP rules are informational labels only: they do not modify or block Linux firewall traffic.
 
 ## Connect a VirtualBox Linux VM securely (local development)
 
@@ -86,6 +86,10 @@ All API endpoints use JSON. User-facing state-changing requests require a CSRF t
 | `GET`, `DELETE` | `/api/servers/<id>` | Read or delete an owned server |
 | `GET` | `/api/alerts` | List owned alerts; optional `?status=active` or `?status=resolved` |
 | `POST` | `/api/alerts/<id>/resolve` | Resolve an owned alert |
+| `GET` | `/api/events` | List owned anomaly and detection log events |
+| `POST` | `/api/events/<id>/resolve` | Resolve an owned event |
+| `GET`, `POST` | `/api/servers/<id>/ip-rules` | List or add informational per-server IP labels |
+| `DELETE` | `/api/servers/<id>/ip-rules/<rule_id>` | Remove an informational IP label |
 | `POST` | `/api/agent/heartbeat` | Submit a monitoring report |
 
 Register a server using `POST /api/servers`:
@@ -118,7 +122,9 @@ The response includes `agent_token` once. Store it securely on the monitored hos
 }
 ```
 
-CPU/memory percentages are required. Other numeric fields default to zero; `listening_ports` and `connections` default to empty lists. Network byte counts and `failed_ssh_attempts` are measured for each reporting interval. Reports are size- and range-validated. Initial anomaly rules alert on at least five failed SSH attempts in a report, a listening port newly appearing after the first report, and traffic at least 10 MiB and four times the average of the most recent three to ten reports.
+CPU/memory percentages are required. Other numeric fields default to zero; `listening_ports` and `connections` default to empty lists. Network byte counts and `failed_ssh_attempts` are measured for each reporting interval. Connection objects may also contain `pid`, `local_ip`, and `local_port`. Reports are size- and range-validated. Initial anomaly rules alert on at least five failed SSH attempts in a report, a listening port newly appearing after the first report, and traffic at least 10 MiB and four times the average of the most recent three to ten reports. The event log also records first-seen remote IPs, unavailable process names, uncommon remote ports, and connection counts of 80 or more. These rules are heuristic and can produce benign review events.
+
+Per-server IP allow/block lists change how a connection is labelled in the dashboard only. No firewall commands or network enforcement are run by the backend or monitoring agent.
 
 ## Install the Linux agent
 
@@ -158,6 +164,16 @@ sudo bash -c 'set -a; . /etc/networkguard-agent.env; set +a; /opt/networkguard-a
 ```
 
 It exits with status 0 after an accepted report, or logs the connection or authentication error and exits nonzero. The agent gathers CPU/memory, network byte deltas, TCP/UDP sockets, listening ports, established connection details, and recent failed SSH logins from journald. Root privileges allow process names and system journal events to be collected; if connection inspection or journald access fails, the agent logs a warning and reports what it can. Keep the token file readable only by root and never paste a real token into tickets or source control. The agent requires HTTPS except for local loopback development URLs.
+
+To upgrade an existing installation after copying the updated `agent` directory onto the Linux host, run these commands from the project directory, then restart the service:
+
+```bash
+sudo cp -R agent/. /opt/networkguard-agent/
+sudo /opt/networkguard-agent/.venv/bin/pip install /opt/networkguard-agent
+sudo systemctl restart networkguard-agent
+```
+
+This refreshes optional connection details such as process ID and local address shown in the server detail view. Older agents remain compatible but do not send those fields.
 
 ## Tests
 

@@ -60,11 +60,22 @@
           <article class="stat-card"><span class="stat-icon blue">▤</span><span class="stat-label">MONITORED SERVERS</span><strong id="stat-servers">0</strong><span id="stat-online" class="stat-foot">0 online</span></article>
           <article class="stat-card"><span class="stat-icon cyan">⇄</span><span class="stat-label">ACTIVE CONNECTIONS</span><strong id="stat-connections">0</strong><span id="stat-protocols" class="stat-foot">0 TCP · 0 UDP</span></article>
           <article class="stat-card"><span class="stat-icon violet">⌁</span><span class="stat-label">ACTIVE ALERTS</span><strong id="stat-alerts">0</strong><span class="stat-foot">Across your servers</span></article>
+          <article class="stat-card"><span class="stat-icon blue">◉</span><span class="stat-label">CONNECTIONS TO REVIEW</span><strong id="stat-suspicious">0</strong><span class="stat-foot">New IPs or unidentified processes</span></article>
         </div>
+        <article class="panel connection-status-panel"><div class="panel-heading"><div><h2>Connection status</h2><p class="muted">Labels describe observations only; they do not block network traffic.</p></div><span id="connection-risk-level" class="risk-pill">LOW REVIEW</span></div><div class="connection-status-grid">
+          <div><span class="status-pill online">Normal / allowed</span><strong id="normal-connections">0</strong></div>
+          <div><span class="status-pill review-status">Needs review</span><strong id="suspicious-connections">0</strong></div>
+          <div><span class="status-pill blocked-status">Blocklist matches</span><strong id="listed-connections">0</strong></div>
+        </div></article>
         <div class="content-grid">
           <article class="panel traffic-panel"><div class="panel-heading"><div><h2>Network traffic</h2><p class="muted">Recent agent reports · bytes per interval</p></div><span class="live-badge"><span class="pulse-dot"></span> LIVE</span></div><div class="chart-wrap"><canvas id="traffic-chart" role="img" aria-label="Recent incoming and outgoing network traffic chart"></canvas><div id="chart-empty" class="chart-empty">Traffic will appear after your agent sends reports.</div></div><div class="chart-legend"><span><i class="legend-in"></i> Inbound</span><span><i class="legend-out"></i> Outbound</span></div></article>
           <article class="panel"><div class="panel-heading"><div><h2>Security alerts</h2><p class="muted">Latest detections</p></div><button class="text-button" type="button" data-go-page="alerts">View all →</button></div><div id="recent-alerts" class="alert-list"></div></article>
         </div>
+        <div class="content-grid">
+          <article class="panel"><div class="panel-heading"><div><h2>Top processes by connections</h2><p class="muted">Observed established connections</p></div></div><div id="top-processes" class="process-bars"></div></article>
+          <article class="panel"><div class="panel-heading"><div><h2>Recent detection log</h2><p class="muted">Events reported or detected by the platform</p></div><button class="text-button" type="button" data-go-page="alerts">View all →</button></div><div id="recent-events" class="alert-list"></div></article>
+        </div>
+        <div class="notice warning">IP blocklist entries are informational only. They label matching connections but do not block traffic on the Linux server.</div>
         <article class="panel table-panel"><div class="panel-heading"><div><h2>Your servers</h2><p class="muted">Current health of registered Linux hosts</p></div><button class="text-button" type="button" data-go-page="servers">All servers →</button></div><div id="dashboard-servers"></div></article>
       </section>
 
@@ -75,8 +86,9 @@
       </section>
 
       <section id="alerts-page" class="page-content" hidden>
-        <div class="welcome-row"><div><h2>Security alerts</h2><p class="muted">Investigate detections reported by your agents.</p></div><label class="filter-label" for="alert-filter">Show <select id="alert-filter"><option value="active">Active</option><option value="resolved">Resolved</option><option value="all">All alerts</option></select></label></div>
-        <article class="panel table-panel"><div id="all-alerts" class="alert-list"></div></article>
+        <div class="welcome-row"><div><h2>Security alerts & logs</h2><p class="muted">Investigate detections reported by your agents. A new IP is a review hint, not proof of an attack.</p></div><label class="filter-label" for="alert-filter">Show <select id="alert-filter"><option value="active">Active</option><option value="resolved">Resolved</option><option value="all">All alerts</option></select></label></div>
+        <article class="panel table-panel"><div class="panel-heading"><h2>Security alerts</h2></div><div id="all-alerts" class="alert-list"></div></article>
+        <article class="panel table-panel" style="margin-top:14px"><div class="panel-heading"><div><h2>Detected anomalies & recent logs</h2><p class="muted">Recent noteworthy observations from agent reports.</p></div></div><div id="all-events" class="alert-list"></div></article>
       </section>
     </section>
   </div>
@@ -90,6 +102,19 @@
       <label for="server-hostname">Hostname <span class="muted">(optional)</span></label><input id="server-hostname" name="hostname" maxlength="255" placeholder="e.g. web-01">
       <p id="server-form-error" class="notice error" role="alert" hidden></p>
       <button class="button primary full" type="submit">Register server</button>
+    </form>
+  </dialog>
+
+  <dialog id="ip-rule-dialog" class="dialog">
+    <form id="ip-rule-form" class="dialog-card">
+      <button class="dialog-close icon-button" type="button" data-close-dialog aria-label="Close">×</button>
+      <p class="eyebrow">CONNECTION LABELS</p><h2>Add an IP rule</h2>
+      <p class="notice warning">This is an informational list only. It does not block or permit traffic in your Linux firewall.</p>
+      <label for="rule-ip">IP address</label><input id="rule-ip" name="ip_address" required maxlength="45" placeholder="203.0.113.10">
+      <label for="rule-action">List</label><select id="rule-action" name="action"><option value="block">Blocklist (label for review)</option><option value="allow">Allowlist (mark as allowed)</option></select>
+      <label for="rule-note">Note <span class="muted">(optional)</span></label><input id="rule-note" name="note" maxlength="200">
+      <p id="rule-form-error" class="notice error" role="alert" hidden></p>
+      <button class="button primary full" type="submit">Save IP rule</button>
     </form>
   </dialog>
 

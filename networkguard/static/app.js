@@ -2,7 +2,7 @@
   "use strict";
 
   const $ = (selector) => document.querySelector(selector);
-  const state = { csrf: null, page: "dashboard", dashboard: null, servers: [], alerts: [] };
+  const state = { csrf: null, page: "dashboard", dashboard: null, servers: [], alerts: [], events: [], selectedServerId: null };
   const pageTitles = { dashboard: "Overview", servers: "My servers", alerts: "Security alerts" };
   const escapeText = (value) => String(value ?? "").replace(/[&<>"']/g, (char) => ({
     "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;",
@@ -99,15 +99,25 @@
     state.dashboard = data;
     state.servers = data.servers || [];
     state.alerts = data.alerts || [];
+    state.events = data.events || [];
     $("#stat-servers").textContent = data.summary.server_count;
     $("#stat-online").textContent = `${data.summary.online_servers} online`;
     $("#stat-connections").textContent = data.summary.connections;
     $("#stat-protocols").textContent = `${data.summary.tcp_connections} TCP · ${data.summary.udp_connections} UDP`;
     $("#stat-alerts").textContent = data.summary.active_alerts;
     $("#server-nav-count").textContent = data.summary.server_count;
-    $("#alert-nav-count").textContent = data.summary.active_alerts;
+    $("#stat-suspicious").textContent = data.summary.suspicious_connections || 0;
+    $("#normal-connections").textContent = data.summary.normal_connections || 0;
+    $("#suspicious-connections").textContent = data.summary.suspicious_connections || 0;
+    $("#listed-connections").textContent = data.summary.listed_connections || 0;
+    const connectionRisk = $("#connection-risk-level");
+    connectionRisk.textContent = data.summary.suspicious_connections ? "REVIEW NEEDED" : "LOW REVIEW";
+    connectionRisk.className = `risk-pill ${data.summary.suspicious_connections ? "risk-medium" : ""}`;
+    $("#alert-nav-count").textContent = (data.summary.active_alerts || 0) + (data.summary.active_events || 0);
     $("#dashboard-servers").innerHTML = serverTable(state.servers);
     $("#recent-alerts").innerHTML = alertRows(state.alerts.slice(0, 4), true);
+    $("#recent-events").innerHTML = eventRows(state.events.slice(0, 5), true);
+    renderProcessBars(data.top_processes || []);
     drawTraffic(data.traffic || []);
     $("#last-updated").textContent = `Updated ${new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`;
     if (state.page === "servers") renderServersPage();
@@ -124,15 +134,45 @@
     </div>`).join("");
   }
 
+  function eventRows(events, compact = false) {
+    if (!events.length) return '<div class="empty-state">No noteworthy events have been detected.</div>';
+    return events.map((item) => `<div class="alert-row">
+      <span class="alert-severity ${escapeText(item.severity)}"></span>
+      <div class="alert-copy"><strong>${escapeText(item.title)}</strong><p>${escapeText(item.details)}</p>
+      <div class="alert-meta">${escapeText(item.server_name)} · ${escapeText(new Date(item.last_seen_at).toLocaleString())} · ${escapeText(item.occurrences)} occurrence(s)</div></div>
+      ${!compact && item.status === "active" ? `<button class="alert-action" type="button" data-resolve-event="${item.id}">Resolve</button>` : ""}
+    </div>`).join("");
+  }
+
+  function renderProcessBars(processes) {
+    const target = $("#top-processes");
+    if (!processes.length) {
+      target.innerHTML = '<div class="empty-state">Process rankings appear when agents report established connections.</div>';
+      return;
+    }
+    const maximum = Math.max(1, ...processes.map((item) => item.connections));
+    target.innerHTML = processes.map((item, index) => `<div class="process-bar-row">
+      <span class="process-name" title="${escapeText(item.process)}">${escapeText(item.process)}</span>
+      <span class="process-bar-track"><i class="process-bar process-color-${index % 5}" style="width:${Math.max(2, item.connections / maximum * 100)}%"></i></span>
+      <span class="process-count">${escapeText(item.connections)}</span>
+    </div>`).join("");
+  }
+
   async function renderAlertsPage() {
     const filter = $("#alert-filter").value;
     try {
       const suffix = filter === "all" ? "" : `?status=${encodeURIComponent(filter)}`;
-      const result = await request(`/api/alerts${suffix}`);
-      state.alerts = result.alerts;
-      $("#all-alerts").innerHTML = alertRows(result.alerts);
+      const [alerts, events] = await Promise.all([
+        request(`/api/alerts${suffix}`),
+        request(`/api/events${suffix}`),
+      ]);
+      state.alerts = alerts.alerts;
+      state.events = events.events;
+      $("#all-alerts").innerHTML = alertRows(alerts.alerts);
+      $("#all-events").innerHTML = eventRows(events.events);
     } catch (error) {
       $("#all-alerts").innerHTML = `<div class="empty-state">${escapeText(error.message)}</div>`;
+      $("#all-events").innerHTML = `<div class="empty-state">${escapeText(error.message)}</div>`;
     }
   }
 
@@ -206,22 +246,48 @@
   async function showServerDetail(id) {
     try {
       const result = await request(`/api/servers/${id}`);
+      state.selectedServerId = Number(id);
       const server = result.server;
       const metrics = result.metrics;
       const latest = metrics.at(-1);
       const ports = latest?.listening_ports || [];
       const connections = latest?.connections || [];
+      const processCounts = {};
+      for (const item of connections) {
+        if (item.process) processCounts[item.process] = (processCounts[item.process] || 0) + 1;
+      }
+      const processes = Object.entries(processCounts)
+        .map(([process, count]) => ({ process, connections: count }))
+        .sort((left, right) => right.connections - left.connections || left.process.localeCompare(right.process));
+      const rules = result.ip_rules || [];
       const detail = $("#server-detail");
       detail.innerHTML = `<div class="panel-heading"><div><p class="eyebrow">SERVER DETAILS</p><h2>${escapeText(server.name)}</h2><p class="muted">${escapeText(server.hostname || "Linux host")} · ${statusPill(server.status)}</p></div><button class="icon-button" type="button" data-close-detail aria-label="Close details">×</button></div>
         <div class="server-card-stats"><div><span>CPU</span><strong>${server.cpu_percent == null ? "—" : `${Number(server.cpu_percent).toFixed(1)}%`}</strong></div><div><span>Memory</span><strong>${server.memory_percent == null ? "—" : `${Number(server.memory_percent).toFixed(1)}%`}</strong></div><div><span>TCP</span><strong>${server.tcp_connections}</strong></div><div><span>UDP</span><strong>${server.udp_connections}</strong></div></div>
         <h2>Listening ports</h2><p class="muted">${ports.length ? ports.map(escapeText).join(", ") : "No listening ports reported."}</p>
-        <h2 style="margin-top:20px">Established connections</h2>
-        ${connections.length ? `<div class="table-wrap"><table><thead><tr><th>PROCESS</th><th>REMOTE ADDRESS</th><th>PROTOCOL</th><th>STATUS</th></tr></thead><tbody>${connections.map((item) => `<tr><td>${escapeText(item.process || "Unknown")}</td><td>${escapeText(item.remote_ip)}:${escapeText(item.remote_port)}</td><td>${escapeText(item.protocol)}</td><td>${escapeText(item.status)}</td></tr>`).join("")}</tbody></table></div>` : '<div class="empty-state">No established connections reported.</div>'}`;
+        <h2 class="detail-section-title">Established connections</h2>
+        ${connections.length ? `<div class="table-wrap"><table><thead><tr><th>PID</th><th>PROCESS</th><th>LOCAL ADDRESS</th><th>REMOTE ADDRESS</th><th>PROTOCOL</th><th>STATE</th><th>RISK / LABEL</th></tr></thead><tbody>${connections.map((item) => `<tr><td>${escapeText(item.pid ?? "—")}</td><td>${escapeText(item.process || "Unknown")}</td><td>${escapeText(item.local_ip || "—")}:${escapeText(item.local_port ?? "—")}</td><td>${escapeText(item.remote_ip || "—")}:${escapeText(item.remote_port ?? "—")}</td><td>${escapeText(item.protocol || "—")}</td><td>${escapeText(item.status || "—")}</td><td><span class="connection-risk risk-${escapeText(item.risk)}">${escapeText(item.risk.replaceAll("_", " "))}</span><div class="alert-meta">${escapeText(item.risk_reason)}</div></td></tr>`).join("")}</tbody></table></div>` : '<div class="empty-state">No established connections reported.</div>'}
+        <h2 class="detail-section-title">Top processes by observed connections</h2>${processes.length ? processBarsCompact(processes) : '<div class="empty-state">No established connections to rank.</div>'}
+        <h2 class="detail-section-title">Detected anomalies & logs</h2>${eventRows((result.events || []).slice(0, 15))}
+        <div class="panel-heading rules-heading"><div><h2>IP allowlist & blocklist</h2><p class="muted">Informational only—these labels do not change Linux firewall traffic.</p></div><button type="button" class="button secondary" data-add-ip-rule="${server.id}">＋ Add IP</button></div>
+        ${ipRulesTable(rules, server.id)}`;
       detail.hidden = false;
       detail.scrollIntoView({ behavior: "smooth", block: "nearest" });
     } catch (error) {
       showNotice(error.message, true);
     }
+  }
+
+  function processBarsCompact(processes) {
+    const maximum = Math.max(1, ...processes.map((item) => item.connections));
+    return `<div class="process-bars">${processes.slice(0, 10).map((item, index) => `<div class="process-bar-row">
+      <span class="process-name" title="${escapeText(item.process)}">${escapeText(item.process)}</span>
+      <span class="process-bar-track"><i class="process-bar process-color-${index % 5}" style="width:${Math.max(2, item.connections / maximum * 100)}%"></i></span>
+      <span class="process-count">${escapeText(item.connections)}</span></div>`).join("")}</div>`;
+  }
+
+  function ipRulesTable(rules, serverId) {
+    if (!rules.length) return '<div class="empty-state">No IP labels configured.</div>';
+    return `<div class="table-wrap"><table><thead><tr><th>IP ADDRESS</th><th>LIST</th><th>NOTE</th><th></th></tr></thead><tbody>${rules.map((rule) => `<tr><td>${escapeText(rule.ip_address)}</td><td><span class="risk-pill ${rule.action === "block" ? "risk-medium" : ""}">${rule.action === "block" ? "Blocklist label" : "Allowed"}</span></td><td>${escapeText(rule.note || "—")}</td><td><button class="alert-action" type="button" data-delete-ip-rule="${rule.id}" data-server-id="${serverId}">Remove</button></td></tr>`).join("")}</tbody></table></div>`;
   }
 
   async function initialize() {
@@ -274,6 +340,29 @@
   }));
   document.querySelectorAll("[data-close-dialog]").forEach((button) => button.addEventListener("click", () => button.closest("dialog").close()));
   document.body.addEventListener("click", async (event) => {
+    const addRuleButton = event.target.closest("[data-add-ip-rule]");
+    if (addRuleButton) {
+      state.selectedServerId = Number(addRuleButton.dataset.addIpRule);
+      $("#rule-form-error").hidden = true;
+      $("#ip-rule-form").reset();
+      $("#ip-rule-dialog").showModal();
+      return;
+    }
+    const deleteRuleButton = event.target.closest("[data-delete-ip-rule]");
+    if (deleteRuleButton) {
+      try {
+        await mutate(`/api/servers/${deleteRuleButton.dataset.serverId}/ip-rules/${deleteRuleButton.dataset.deleteIpRule}`, "DELETE");
+        await showServerDetail(deleteRuleButton.dataset.serverId);
+        await refresh();
+      } catch (error) { showNotice(error.message, true); }
+      return;
+    }
+    const resolveEventButton = event.target.closest("[data-resolve-event]");
+    if (resolveEventButton) {
+      try { await mutate(`/api/events/${resolveEventButton.dataset.resolveEvent}/resolve`, "POST"); await refresh(); }
+      catch (error) { showNotice(error.message, true); }
+      return;
+    }
     const detailButton = event.target.closest("[data-server-detail]");
     if (detailButton) return showServerDetail(detailButton.dataset.serverDetail);
     if (event.target.closest("[data-close-detail]")) { $("#server-detail").hidden = true; return; }
@@ -287,6 +376,21 @@
       try { await mutate(`/api/servers/${deleteButton.dataset.deleteServer}`, "DELETE"); $("#server-detail").hidden = true; await refresh(); showNotice("Server removed."); }
       catch (error) { showNotice(error.message, true); }
     }
+  });
+  $("#ip-rule-form").addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const button = event.currentTarget.querySelector('[type="submit"]');
+    button.disabled = true;
+    try {
+      const body = Object.fromEntries(new FormData(event.currentTarget));
+      await mutate(`/api/servers/${state.selectedServerId}/ip-rules`, "POST", body);
+      $("#ip-rule-dialog").close();
+      await showServerDetail(state.selectedServerId);
+      await refresh();
+    } catch (error) {
+      $("#rule-form-error").textContent = error.message;
+      $("#rule-form-error").hidden = false;
+    } finally { button.disabled = false; }
   });
   $("#add-server-form").addEventListener("submit", async (event) => {
     event.preventDefault();

@@ -104,7 +104,7 @@ class MetricsCollectorTests(unittest.TestCase):
             SimpleNamespace(
                 type=1,
                 status="ESTABLISHED",
-                laddr=SimpleNamespace(port=40000),
+                laddr=SimpleNamespace(ip="192.168.1.10", port=40000),
                 raddr=SimpleNamespace(ip="203.0.113.8", port=443),
                 pid=None,
             ),
@@ -136,6 +136,7 @@ class MetricsCollectorTests(unittest.TestCase):
         self.assertEqual(result["failed_ssh_attempts"], 1)
         self.assertEqual(result["listening_ports"], [22, 5353])
         self.assertEqual(result["connections"][0]["remote_ip"], "203.0.113.8")
+        self.assertEqual(result["connections"][0]["local_port"], 40000)
         self.assertEqual(journal.call_args.args[0][0], "journalctl")
 
 

@@ -193,6 +193,108 @@ class ApiTestCase(unittest.TestCase):
         )
         self.assertEqual(self.client.get("/api/dashboard").get_json()["summary"]["active_alerts"], 2)
         self.assertEqual(detail["server"]["risk"], "HIGH")
+        self.assertIn("Repeated failed SSH logins", {event["title"] for event in detail["events"]})
+
+    def test_connection_anomalies_are_logged_and_ip_rules_are_informational(self):
+        self.register("events@example.com")
+        created = self.create_server()
+        server_id = created["server"]["id"]
+        headers = {"Authorization": f"Bearer {created['agent_token']}"}
+        first = self.metrics(connections=[
+            {
+                "process": "nginx",
+                "pid": 80,
+                "local_ip": "192.168.1.10",
+                "local_port": 40000,
+                "remote_ip": "203.0.113.7",
+                "remote_port": 443,
+                "protocol": "tcp",
+                "status": "ESTABLISHED",
+            }
+        ])
+        self.assertEqual(self.client.post("/api/agent/heartbeat", headers=headers, json=first).status_code, 202)
+
+        second = self.metrics(
+            tcp_connections=80,
+            listening_ports=[22, 443, 8080],
+            connections=[
+                {
+                    "process": None,
+                    "pid": None,
+                    "local_ip": "192.168.1.10",
+                    "local_port": 40001,
+                    "remote_ip": "198.51.100.44",
+                    "remote_port": 8080,
+                    "protocol": "tcp",
+                    "status": "ESTABLISHED",
+                }
+            ],
+        )
+        self.assertEqual(self.client.post("/api/agent/heartbeat", headers=headers, json=second).status_code, 202)
+        events = self.client.get("/api/events").get_json()["events"]
+        titles = {event["title"] for event in events}
+        self.assertTrue({
+            "New remote IP observed",
+            "Connection process unavailable",
+            "High connection count",
+            "New listening port detected",
+            "Connection uses an uncommon remote port",
+        }.issubset(titles))
+        detail = self.client.get(f"/api/servers/{server_id}").get_json()
+        connection = detail["metrics"][-1]["connections"][0]
+        self.assertEqual(connection["risk"], "unknown_process")
+        self.assertEqual(connection["pid"], None)
+        dashboard = self.client.get("/api/dashboard").get_json()
+        self.assertEqual(dashboard["summary"]["suspicious_connections"], 1)
+        self.assertEqual(dashboard["summary"]["normal_connections"], 0)
+
+        invalid = self.client.post(
+            f"/api/servers/{server_id}/ip-rules",
+            json={"ip_address": "not-an-ip", "action": "block"},
+        )
+        self.assertEqual(invalid.status_code, 400)
+        rule_response = self.client.post(
+            f"/api/servers/{server_id}/ip-rules",
+            json={"ip_address": "198.51.100.44", "action": "block", "note": "Demo label"},
+        )
+        self.assertEqual(rule_response.status_code, 201)
+        self.assertEqual(rule_response.get_json()["enforcement"], "informational_only")
+        detail = self.client.get(f"/api/servers/{server_id}").get_json()
+        self.assertEqual(detail["metrics"][-1]["connections"][0]["risk"], "listed_to_block")
+        self.assertEqual(self.client.get("/api/dashboard").get_json()["summary"]["listed_connections"], 1)
+        allow_response = self.client.post(
+            f"/api/servers/{server_id}/ip-rules",
+            json={"ip_address": "198.51.100.44", "action": "allow", "note": "Known host"},
+        )
+        self.assertEqual(allow_response.status_code, 201)
+        self.assertEqual(
+            self.client.get(f"/api/servers/{server_id}").get_json()["metrics"][-1]["connections"][0]["risk"],
+            "allowed",
+        )
+        self.assertEqual(
+            self.client.delete(
+                f"/api/servers/{server_id}/ip-rules/{allow_response.get_json()['ip_rule']['id']}"
+            ).status_code,
+            204,
+        )
+
+        self.client.post("/api/auth/logout")
+        self.register("other-rules@example.com")
+        self.assertEqual(self.client.get(f"/api/servers/{server_id}/ip-rules").status_code, 404)
+
+    def test_security_events_are_private_and_resolvable(self):
+        self.register("event-owner@example.com")
+        created = self.create_server()
+        headers = {"Authorization": f"Bearer {created['agent_token']}"}
+        self.client.post("/api/agent/heartbeat", headers=headers, json=self.metrics())
+        self.client.post("/api/agent/heartbeat", headers=headers, json=self.metrics(failed_ssh_attempts=6))
+        event = self.client.get("/api/events").get_json()["events"][0]
+        self.assertEqual(self.client.post(f"/api/events/{event['id']}/resolve").status_code, 200)
+        self.client.post("/api/auth/logout")
+        self.register("other-event-owner@example.com")
+        self.assertEqual(self.client.post(f"/api/events/{event['id']}/resolve").status_code, 404)
+        self.assertEqual(self.client.get("/api/events").get_json()["events"], [])
+
 
     def test_agent_rejects_invalid_metrics(self):
         self.register("validation@example.com")

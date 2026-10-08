@@ -19,6 +19,7 @@ class MetricsCollector:
         remote = connection.raddr
         if not remote:
             return None
+        local = connection.laddr
         try:
             process = psutil.Process(connection.pid).name() if connection.pid else None
         except (psutil.Error, OSError):
@@ -26,6 +27,9 @@ class MetricsCollector:
         protocol = "tcp" if connection.type == 1 else "udp"
         return {
             "process": process,
+            "pid": connection.pid,
+            "local_ip": str(local.ip) if local else None,
+            "local_port": local.port if local else None,
             "remote_ip": str(remote.ip),
             "remote_port": remote.port,
             "protocol": protocol,
