@@ -149,6 +149,12 @@ select{padding:7px 9px}
 .auth-tab{border:0;border-radius:4px;padding:8px;background:transparent;color:var(--muted);font-size:11px;cursor:pointer}
 .auth-tab.selected{background:#1a2a40;color:var(--text)}
 #auth-form input{padding:10px 11px}
+.password-field{position:relative}
+#auth-form .password-field input{padding-right:44px}
+.password-toggle{position:absolute;top:50%;right:5px;display:grid;width:34px;height:34px;place-items:center;transform:translateY(-50%);border:0;border-radius:5px;background:transparent;color:var(--muted);cursor:pointer}
+.password-toggle:hover{background:#1a2a40;color:var(--text)}
+.password-toggle:focus-visible{outline:2px solid #5595ff;outline-offset:1px}
+.password-toggle svg{width:18px;height:18px;fill:none;stroke:currentColor;stroke-linecap:round;stroke-linejoin:round;stroke-width:1.7}
 
 @media(max-width:1080px){.main-column{padding:0 24px 35px}.content-grid{grid-template-columns:1fr}.traffic-panel{min-height:320px}.stats-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
 @media(max-width:720px){.sidebar{inset:auto 0 0;width:auto;height:65px;padding:5px 9px;background:#091421ed;border-right:0;border-top:1px solid var(--border);backdrop-filter:blur(12px)}.sidebar>.brand,.nav-label,.sidebar-bottom{display:none}.sidebar nav{height:100%;grid-template-columns:repeat(3,1fr);gap:4px}.nav-link{height:52px;justify-content:center;flex-direction:column;gap:1px;padding:2px;font-size:9px}.nav-link>span:first-child{width:auto;font-size:16px}.nav-count{position:absolute;margin:0 0 28px 53px;padding:1px 5px;font-size:8px}.main-column{margin-left:0;padding:0 15px 84px}.topbar{height:79px;margin-bottom:22px}.topbar h1{font-size:18px}.topbar-actions{gap:8px}.topbar-actions .muted{display:none}.button{padding:8px 10px;font-size:11px}.stats-grid{grid-template-columns:1fr;gap:9px}.stat-card{min-height:102px;padding:13px 15px}.stat-card strong{margin:7px 0 3px;font-size:23px}.content-grid{gap:10px}.welcome-row{align-items:flex-start}.welcome-row h2{font-size:16px}.welcome-row>.button{flex:0 0 auto}.panel{padding:14px}.chart-wrap{height:190px}.connection-status-grid{grid-template-columns:1fr}.auth-card{padding:25px 21px}}

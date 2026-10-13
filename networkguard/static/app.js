@@ -306,6 +306,15 @@
   }
 
   setAuthMode("login");
+  $("#toggle-password").addEventListener("click", () => {
+    const password = $("#auth-password");
+    const isVisible = password.type === "password";
+    password.type = isVisible ? "text" : "password";
+    $("#toggle-password").setAttribute("aria-label", isVisible ? "Hide password" : "Show password");
+    $("#toggle-password").setAttribute("aria-pressed", String(isVisible));
+    $(".password-icon-show").hidden = isVisible;
+    $(".password-icon-hide").hidden = !isVisible;
+  });
   $("#login-tab").addEventListener("click", () => setAuthMode("login"));
   $("#register-tab").addEventListener("click", () => setAuthMode("register"));
   $("#auth-form").addEventListener("submit", async (event) => {

@@ -23,7 +23,13 @@
         <label for="auth-email">Email address</label>
         <input id="auth-email" name="email" type="email" autocomplete="email" required maxlength="254">
         <label for="auth-password">Password</label>
-        <input id="auth-password" name="password" type="password" autocomplete="current-password" required minlength="12" maxlength="128">
+        <div class="password-field">
+          <input id="auth-password" name="password" type="password" autocomplete="current-password" required minlength="12" maxlength="128">
+          <button id="toggle-password" class="password-toggle" type="button" aria-label="Show password" aria-pressed="false">
+            <svg class="password-icon-show" aria-hidden="true" viewBox="0 0 24 24"><path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/></svg>
+            <svg class="password-icon-hide" aria-hidden="true" viewBox="0 0 24 24" hidden><path d="m3 3 18 18M10.6 10.7a2 2 0 0 0 2.7 2.7"/><path d="M9.9 5.2A10.8 10.8 0 0 1 12 5c6.4 0 10 7 10 7a15.7 15.7 0 0 1-3.1 3.8M6.2 6.2C3.5 8 2 12 2 12s3.6 7 10 7a10.6 10.6 0 0 0 4.1-.8"/></svg>
+          </button>
+        </div>
         <p id="password-hint" class="field-hint" hidden>Use at least 12 characters.</p>
         <button id="auth-submit" class="button primary full" type="submit">Sign in</button>
       </form>
