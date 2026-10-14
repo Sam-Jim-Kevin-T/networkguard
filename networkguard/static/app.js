@@ -3,6 +3,8 @@
 
   const $ = (selector) => document.querySelector(selector);
   const state = { csrf: null, page: "dashboard", dashboard: null, servers: [], alerts: [], events: [], selectedServerId: null };
+  let chartGeometry = null;
+  let chartActiveIndex = null;
   const pageTitles = { dashboard: "Overview", servers: "My servers", alerts: "Security alerts" };
   const escapeText = (value) => String(value ?? "").replace(/[&<>"']/g, (char) => ({
     "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;",
@@ -96,10 +98,12 @@
   }
 
   function renderDashboard(data) {
+    chartActiveIndex = null;
     state.dashboard = data;
     state.servers = data.servers || [];
     state.alerts = data.alerts || [];
     state.events = data.events || [];
+    updateTrafficServerOptions(state.servers);
     $("#stat-servers").textContent = data.summary.server_count;
     $("#stat-online").textContent = `${data.summary.online_servers} online`;
     $("#stat-connections").textContent = data.summary.connections;
@@ -118,7 +122,7 @@
     $("#recent-alerts").innerHTML = alertRows(state.alerts.slice(0, 4), true);
     $("#recent-events").innerHTML = eventRows(state.events.slice(0, 5), true);
     renderProcessBars(data.top_processes || []);
-    drawTraffic(data.traffic || []);
+    renderTrafficChart();
     $("#last-updated").textContent = `Updated ${new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`;
     if (state.page === "servers") renderServersPage();
     if (state.page === "alerts") renderAlertsPage();
@@ -186,46 +190,207 @@
       <div class="server-card-actions"><button class="text-button" type="button" data-server-detail="${server.id}">View details →</button><button class="alert-action" type="button" data-delete-server="${server.id}">Remove</button></div></article>`).join("") : '<article class="panel empty-state">No servers yet. Add a Linux host to begin collecting metrics.</article>';
   }
 
-  function drawTraffic(traffic) {
+  function formatBytes(value) {
+    if (value < 1024) return `${Math.round(value)} B`;
+    const units = ["KB", "MB", "GB", "TB"];
+    let scaled = value / 1024;
+    let unit = 0;
+    while (scaled >= 1024 && unit < units.length - 1) {
+      scaled /= 1024;
+      unit += 1;
+    }
+    return `${scaled.toFixed(scaled < 10 ? 1 : 0)} ${units[unit]}`;
+  }
+
+  function parseReportedDate(value) {
+    if (typeof value !== "string") return new Date(Number.NaN);
+    const hasTimezone = /(?:Z|[+-]\d{2}:\d{2})$/i.test(value);
+    const normalized = !hasTimezone && /^\d{4}-\d{2}-\d{2}T/.test(value)
+      ? `${value}Z`
+      : value;
+    return new Date(normalized);
+  }
+
+  function updateTrafficServerOptions(servers) {
+    const select = $("#traffic-server-filter");
+    const selected = select.value;
+    select.replaceChildren(new Option("All servers", "all"));
+    servers.forEach((server) => select.add(new Option(server.name, String(server.id))));
+    if ([...select.options].some((option) => option.value === selected)) {
+      select.value = selected;
+    } else {
+      select.value = "all";
+    }
+  }
+
+  function renderTrafficChart(activeIndex = null) {
+    const reports = state.dashboard?.traffic || [];
+    const serverId = $("#traffic-server-filter").value;
+    const rangeHours = $("#traffic-range-filter").value;
+    const cutoff = rangeHours === "all" ? null : Date.now() - Number(rangeHours) * 60 * 60 * 1000;
+    const filtered = reports.filter((report) => {
+      if (serverId !== "all" && String(report.server_id) !== serverId) return false;
+      if (cutoff === null) return true;
+      const recordedAt = parseReportedDate(report.recorded_at).getTime();
+      return Number.isFinite(recordedAt) && recordedAt >= cutoff;
+    });
+    drawTraffic(filtered, activeIndex);
+  }
+
+  function drawTraffic(traffic, activeIndex = null) {
     const canvas = $("#traffic-chart");
     const ctx = canvas.getContext("2d");
     const box = canvas.getBoundingClientRect();
     const ratio = window.devicePixelRatio || 1;
     canvas.width = Math.max(1, Math.floor(box.width * ratio));
     canvas.height = Math.max(1, Math.floor(box.height * ratio));
-    ctx.scale(ratio, ratio);
+    ctx.setTransform(ratio, 0, 0, ratio, 0, 0);
     const width = box.width;
     const height = box.height;
     ctx.clearRect(0, 0, width, height);
     $("#chart-empty").hidden = traffic.length > 0;
+    if (!traffic.length) {
+      const hasReports = (state.dashboard?.traffic || []).length > 0;
+      $("#chart-empty").textContent = hasReports
+        ? "No reports match these filters. Try a wider time range or another server."
+        : "Traffic will appear after your agent sends reports.";
+      canvas.setAttribute("aria-label", hasReports
+        ? "No traffic reports match the current chart filters."
+        : "No traffic reports have been recorded yet.");
+    }
+    const tooltip = $("#chart-tooltip");
+    tooltip.hidden = true;
+    chartGeometry = null;
     if (!traffic.length || width < 1 || height < 1) return;
-    const pad = { top: 12, right: 12, bottom: 17, left: 48 };
+
+    const points = traffic.map((item) => ({
+      ...item,
+      network_in_bytes: Math.max(0, Number(item.network_in_bytes) || 0),
+      network_out_bytes: Math.max(0, Number(item.network_out_bytes) || 0),
+    }));
+    canvas.setAttribute("aria-label", `Recent network traffic for ${points.length} reports. Hover over the chart to inspect inbound and outbound bytes by server and time.`);
+    const dataMax = Math.max(1, ...points.map((item) => Math.max(item.network_in_bytes, item.network_out_bytes)));
+    const magnitude = 10 ** Math.floor(Math.log10(dataMax));
+    const normalizedMax = dataMax / magnitude;
+    const scaleMax = (normalizedMax <= 1 ? 1 : normalizedMax <= 2 ? 2 : normalizedMax <= 5 ? 5 : 10) * magnitude;
+    const pad = { top: 15, right: 14, bottom: 31, left: 58 };
     const plotWidth = width - pad.left - pad.right;
     const plotHeight = height - pad.top - pad.bottom;
-    const max = Math.max(1, ...traffic.map((item) => Math.max(item.network_in_bytes, item.network_out_bytes)));
+    if (plotWidth <= 0 || plotHeight <= 0) return;
+    const xFor = (index) => pad.left + plotWidth * (points.length === 1 ? 0.5 : index / (points.length - 1));
+    const yFor = (value) => pad.top + plotHeight * (1 - value / scaleMax);
+    chartGeometry = { left: pad.left, right: pad.left + plotWidth, xFor, points };
     ctx.font = '10px "DM Mono", monospace';
     ctx.textBaseline = "middle";
     for (let line = 0; line <= 3; line += 1) {
       const y = pad.top + plotHeight * line / 3;
-      ctx.strokeStyle = "#1b2a3b";
+      ctx.strokeStyle = line === 3 ? "#2a3a4d" : "#1b2a3b";
+      ctx.lineWidth = 1;
       ctx.beginPath(); ctx.moveTo(pad.left, y); ctx.lineTo(width - pad.right, y); ctx.stroke();
-      ctx.fillStyle = "#73859b";
-      const value = max * (1 - line / 3);
-      ctx.fillText(value >= 1024 * 1024 ? `${(value / 1024 / 1024).toFixed(1)}M` : `${Math.round(value / 1024)}K`, 1, y);
+      ctx.fillStyle = "#8192a7";
+      ctx.textAlign = "right";
+      ctx.fillText(formatBytes(scaleMax * (1 - line / 3)), pad.left - 10, y);
     }
+
+    const dates = points.map((point) => parseReportedDate(point.recorded_at));
+    const hasMultipleDays = dates.length > 1 && dates[0].toDateString() !== dates[dates.length - 1].toDateString();
+    const reportSpan = dates.length > 1 ? dates[dates.length - 1] - dates[0] : 0;
+    const timeOptions = hasMultipleDays
+      ? { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" }
+      : reportSpan < 60 * 60 * 1000
+        ? { hour: "2-digit", minute: "2-digit", second: "2-digit" }
+        : { hour: "2-digit", minute: "2-digit" };
+    const tickIndices = [...new Set([0, Math.floor((points.length - 1) / 2), points.length - 1])];
+    ctx.fillStyle = "#8192a7";
+    ctx.textBaseline = "top";
+    tickIndices.forEach((index, tick) => {
+      const date = dates[index];
+      if (Number.isNaN(date.getTime())) return;
+      const x = xFor(index);
+      ctx.textAlign = tick === 0 ? "left" : tick === tickIndices.length - 1 ? "right" : "center";
+      ctx.fillText(date.toLocaleString([], timeOptions), x, pad.top + plotHeight + 11);
+    });
+
     const series = [
-      { key: "network_in_bytes", color: "#5595ff" },
-      { key: "network_out_bytes", color: "#39d2df" },
+      { key: "network_in_bytes", color: "#6ba5ff" },
+      { key: "network_out_bytes", color: "#42d5df" },
     ];
     series.forEach(({ key, color }) => {
-      ctx.strokeStyle = color; ctx.lineWidth = 2; ctx.beginPath();
-      traffic.forEach((point, index) => {
-        const x = pad.left + plotWidth * (traffic.length === 1 ? 0.5 : index / (traffic.length - 1));
-        const y = pad.top + plotHeight * (1 - point[key] / max);
-        if (index === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
-      });
+      const coordinates = points.map((point, index) => ({ x: xFor(index), y: yFor(point[key]) }));
+      const trace = () => {
+        ctx.beginPath();
+        ctx.moveTo(coordinates[0].x, coordinates[0].y);
+        for (let index = 1; index < coordinates.length; index += 1) {
+          const previous = coordinates[index - 1];
+          const current = coordinates[index];
+          const midpoint = (previous.x + current.x) / 2;
+          ctx.quadraticCurveTo(previous.x, previous.y, midpoint, (previous.y + current.y) / 2);
+        }
+        if (coordinates.length > 1) {
+          const previous = coordinates[coordinates.length - 2];
+          const last = coordinates[coordinates.length - 1];
+          ctx.quadraticCurveTo(previous.x, previous.y, last.x, last.y);
+        }
+      };
+      trace();
+      ctx.lineTo(coordinates[coordinates.length - 1].x, pad.top + plotHeight);
+      ctx.lineTo(coordinates[0].x, pad.top + plotHeight);
+      ctx.closePath();
+      const gradient = ctx.createLinearGradient(0, pad.top, 0, pad.top + plotHeight);
+      gradient.addColorStop(0, color === "#6ba5ff" ? "rgba(85, 149, 255, 0.22)" : "rgba(57, 210, 223, 0.18)");
+      gradient.addColorStop(1, "rgba(13, 25, 41, 0)");
+      ctx.fillStyle = gradient;
+      ctx.fill();
+      trace();
+      ctx.strokeStyle = color;
+      ctx.lineWidth = 2;
+      ctx.lineJoin = "round";
+      ctx.lineCap = "round";
       ctx.stroke();
     });
+
+    if (activeIndex == null || activeIndex < 0 || activeIndex >= points.length) return;
+    const point = points[activeIndex];
+    const x = xFor(activeIndex);
+    ctx.save();
+    ctx.setLineDash([3, 4]);
+    ctx.strokeStyle = "#8192a7aa";
+    ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(x, pad.top); ctx.lineTo(x, pad.top + plotHeight); ctx.stroke();
+    ctx.restore();
+    [series[0], series[1]].forEach(({ key, color }) => {
+      ctx.beginPath();
+      ctx.arc(x, yFor(point[key]), 4, 0, Math.PI * 2);
+      ctx.fillStyle = color;
+      ctx.fill();
+      ctx.strokeStyle = "#0d1929";
+      ctx.lineWidth = 2;
+      ctx.stroke();
+    });
+
+    const host = state.servers.find((server) => server.id === point.server_id);
+    const date = parseReportedDate(point.recorded_at);
+    const rows = [
+      host?.name || "Server report",
+      Number.isNaN(date.getTime()) ? "Unknown time" : date.toLocaleString(),
+      `Inbound  ${formatBytes(point.network_in_bytes)}`,
+      `Outbound ${formatBytes(point.network_out_bytes)}`,
+    ];
+    tooltip.replaceChildren(...rows.map((text, index) => {
+      const row = document.createElement(index === 0 ? "strong" : "span");
+      row.textContent = text;
+      if (index === 2) row.className = "tooltip-in";
+      if (index === 3) row.className = "tooltip-out";
+      return row;
+    }));
+    tooltip.hidden = false;
+    const tooltipHalfWidth = tooltip.getBoundingClientRect().width / 2;
+    const horizontalMargin = Math.min(tooltipHalfWidth + 8, width / 2 - 4);
+    tooltip.style.left = `${Math.min(Math.max(x, horizontalMargin), width - horizontalMargin)}px`;
+    const pointY = yFor(Math.max(point.network_in_bytes, point.network_out_bytes));
+    const placeBelow = pointY < 74;
+    tooltip.classList.toggle("below", placeBelow);
+    tooltip.style.top = `${placeBelow ? Math.min(height - 72, pointY + 10) : pointY - 8}px`;
   }
 
   async function refresh() {
@@ -433,7 +598,40 @@
     }
   });
   window.addEventListener("resize", () => {
-    if (state.dashboard) drawTraffic(state.dashboard.traffic || []);
+    if (state.dashboard) renderTrafficChart(chartActiveIndex);
+  });
+  $("#traffic-server-filter").addEventListener("change", () => {
+    chartActiveIndex = null;
+    renderTrafficChart();
+  });
+  $("#traffic-range-filter").addEventListener("change", () => {
+    chartActiveIndex = null;
+    renderTrafficChart();
+  });
+  $("#traffic-chart").addEventListener("pointermove", (event) => {
+    if (!chartGeometry || !chartGeometry.points.length) return;
+    const x = event.clientX - $("#traffic-chart").getBoundingClientRect().left;
+    const { left, right, points } = chartGeometry;
+    const clampedX = Math.min(right, Math.max(left, x));
+    const index = points.length === 1 ? 0 : Math.round((clampedX - left) / (right - left) * (points.length - 1));
+    chartActiveIndex = index;
+    renderTrafficChart(index);
+  });
+  $("#traffic-chart").addEventListener("pointerleave", () => {
+    chartActiveIndex = null;
+    if (state.dashboard) renderTrafficChart();
+  });
+  $("#traffic-chart").addEventListener("keydown", (event) => {
+    if (!chartGeometry || !chartGeometry.points.length) return;
+    let index = chartActiveIndex ?? 0;
+    if (event.key === "ArrowLeft") index = Math.max(0, index - 1);
+    else if (event.key === "ArrowRight") index = Math.min(chartGeometry.points.length - 1, index + 1);
+    else if (event.key === "Home") index = 0;
+    else if (event.key === "End") index = chartGeometry.points.length - 1;
+    else return;
+    event.preventDefault();
+    chartActiveIndex = index;
+    renderTrafficChart(index);
   });
   window.setInterval(() => {
     if (!document.hidden && !$("#app-view").hidden) refresh();

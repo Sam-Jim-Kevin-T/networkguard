@@ -74,7 +74,18 @@
           <div><span class="status-pill blocked-status">Blocklist matches</span><strong id="listed-connections">0</strong></div>
         </div></article>
         <div class="content-grid">
-          <article class="panel traffic-panel"><div class="panel-heading"><div><h2>Network traffic</h2><p class="muted">Recent agent reports · bytes per interval</p></div><span class="live-badge"><span class="pulse-dot"></span> LIVE</span></div><div class="chart-wrap"><canvas id="traffic-chart" role="img" aria-label="Recent incoming and outgoing network traffic chart"></canvas><div id="chart-empty" class="chart-empty">Traffic will appear after your agent sends reports.</div></div><div class="chart-legend"><span><i class="legend-in"></i> Inbound</span><span><i class="legend-out"></i> Outbound</span></div></article>
+          <article class="panel traffic-panel">
+            <div class="panel-heading traffic-heading">
+              <div><h2>Network traffic</h2><p class="muted">Recent agent reports · bytes per interval</p></div>
+              <div class="chart-controls">
+                <label class="chart-filter"><span class="sr-only">Filter traffic by server</span><select id="traffic-server-filter" aria-label="Filter traffic by server"><option value="all">All servers</option></select></label>
+                <label class="chart-filter"><span class="sr-only">Select traffic time range</span><select id="traffic-range-filter" aria-label="Select traffic time range"><option value="all">All recent reports</option><option value="1">Last hour</option><option value="6">Last 6 hours</option><option value="24">Last 24 hours</option></select></label>
+                <span class="live-badge"><span class="pulse-dot"></span> LIVE</span>
+              </div>
+            </div>
+            <div class="chart-wrap"><canvas id="traffic-chart" tabindex="0" role="img" aria-describedby="chart-tooltip" aria-label="Recent incoming and outgoing network traffic chart. Use the arrow keys to inspect reports."></canvas><div id="chart-tooltip" class="chart-tooltip" role="tooltip" hidden></div><div id="chart-empty" class="chart-empty">Traffic will appear after your agent sends reports.</div></div>
+            <div class="chart-legend"><span><i class="legend-in"></i> Inbound</span><span><i class="legend-out"></i> Outbound</span></div>
+          </article>
           <article class="panel"><div class="panel-heading"><div><h2>Security alerts</h2><p class="muted">Latest detections</p></div><button class="text-button" type="button" data-go-page="alerts">View all →</button></div><div id="recent-alerts" class="alert-list"></div></article>
         </div>
         <div class="content-grid">
@@ -94,7 +105,7 @@
       <section id="alerts-page" class="page-content" hidden>
         <div class="welcome-row"><div><h2>Security alerts & logs</h2><p class="muted">Investigate detections reported by your agents. A new IP is a review hint, not proof of an attack.</p></div><label class="filter-label" for="alert-filter">Show <select id="alert-filter"><option value="active">Active</option><option value="resolved">Resolved</option><option value="all">All alerts</option></select></label></div>
         <article class="panel table-panel"><div class="panel-heading"><h2>Security alerts</h2></div><div id="all-alerts" class="alert-list"></div></article>
-        <article class="panel table-panel" style="margin-top:14px"><div class="panel-heading"><div><h2>Detected anomalies & recent logs</h2><p class="muted">Recent noteworthy observations from agent reports.</p></div></div><div id="all-events" class="alert-list"></div></article>
+        <article class="panel table-panel events-panel"><div class="panel-heading"><div><h2>Detected anomalies & recent logs</h2><p class="muted">Recent noteworthy observations from agent reports.</p></div></div><div id="all-events" class="alert-list"></div></article>
       </section>
     </section>
   </div>
